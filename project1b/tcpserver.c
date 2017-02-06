@@ -19,6 +19,7 @@
 #include <sys/sendfile.h>
 #include <sys/types.h>
 #include <pthread.h>
+#include <dirent.h>
 
 struct clientinfo{
 	struct sockaddr_in addr;
@@ -30,47 +31,83 @@ void* recieve_message(void *arg){
 		struct clientinfo ci = *(struct clientinfo *)arg;
 		int clientsocket = ci.socket;
 		char line[5000];
+        char* filename;
 		// e is the number of bytes recieved
 		//while(run == 1){
-
+        while(1){
+            
 			int e = recv(clientsocket,line,5000,0);
+           // printf("Contents of Line: %s", line);
 			if(e < 0){
 				printf("Error recieving\n");
 				return 1;
 			}
-			printf("\nGot from the client %d: %s\n", clientsocket, line);
-			
 
-			// fetch file if it exists
+                if(strcmp(line, "Quit") == 0){
+                    printf("Client is disconnecting...\n");
+                    close(clientsocket);
+                }
+                if(strcmp(line, "List") ==0){
+                    DIR *d;
+                    struct dirent *dir;
+                    d = opendir(".");
+                    int count=0;
+                    if(d){
+                        while((dir = readdir(d)) != NULL)
+                        {
+                            count++;
+                        }
+                    }
+                    int filecount = htonl(count);
+                    send(clientsocket, &filecount, sizeof(filecount), 0); 
+                    rewinddir(d);
+                    if(d){
+                        while((dir = readdir(d)) != NULL)
+                        {
+                            // send byte buffer of files
+                            filename = dir->d_name;
+                            printf("sending file %s\n", filename);
+                            send(clientsocket, filename, strlen(filename)+1, 0);
+                        }
+                    }
+                }
+                else{
+                    printf("\nGot from the client %d: %s\n", clientsocket, line);
+            	
+
+                // fetch file if it exists
 						
-			int success = 1;
-			FILE *file;
+                    int success = 1;
+                    FILE *file;
 			
 
-			int fd; //file descriptor
-			fd = open(line, O_RDONLY);
-
+                    int fd; //file descriptor
+                    fd = open(line, O_RDONLY);
+                    printf("Got file open\n");
 			
 
-			// send file to the client
+                    // send file to the client
+                
+                    // get the size of the file
+                    struct stat stat_buf;
+                    fstat(fd, &stat_buf);
+                    //printf("\nbytes: %d\n", stat_buf.st_size);
+                
+                    // send size
+                    int size = htonl(stat_buf.st_size);
+                    int senderr = send(clientsocket, &size, sizeof(size), 0);
+                    printf("Sent size back\n");
+                    //printf("Send error : %d", senderr);
 			
-			// get the size of the file
-			struct stat stat_buf;
-			fstat(fd, &stat_buf);
-			//printf("\nbytes: %d\n", stat_buf.st_size);
-			
-			// send size
-			int size = htonl(stat_buf.st_size);
-			int senderr = send(clientsocket, &size, sizeof(size), 0);
-			
-			//printf("Send error : %d", senderr);
-			
-			// use sendfile	
-			off_t offset = 0;
-		  	int rc = sendfile (clientsocket, fd, &offset, stat_buf.st_size);
-				//printf("Send file err: %d", rc);
-			close(fd);
-		//}
+                    // use sendfile	
+                    off_t offset = 0;
+                    int rc = sendfile (clientsocket, fd, &offset, stat_buf.st_size);
+                    //printf("Send file err: %d", rc);
+                    printf("Sent File Back\n");
+                    close(fd);
+            }
+        }
+            
 	
 }
 
